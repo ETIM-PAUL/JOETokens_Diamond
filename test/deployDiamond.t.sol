@@ -7,6 +7,7 @@ import "../contracts/facets/DiamondLoupeFacet.sol";
 import "../contracts/facets/OwnershipFacet.sol";
 import "../contracts/facets/JoeTokenFacet.sol";
 import "../contracts/Diamond.sol";
+import "../contracts/upgradeInitializers/DiamondInit.sol";
 
 import "./helpers/DiamondUtils.sol";
 
@@ -16,7 +17,8 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
     DiamondCutFacet dCutFacet;
     DiamondLoupeFacet dLoupe;
     OwnershipFacet ownerF;
-    JoeTokenFacet ercF;
+    JoeTokenFacet tokenF;
+    DiamondInit dInit;
 
     function testDeployDiamond() public {
         //deploy facets
@@ -24,7 +26,8 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
         diamond = new Diamond(address(this), address(dCutFacet));
         dLoupe = new DiamondLoupeFacet();
         ownerF = new OwnershipFacet();
-        ercF = new JoeTokenFacet();
+        tokenF = new JoeTokenFacet();
+        dInit = new DiamondInit();
 
         //upgrade diamond with facets
 
@@ -50,7 +53,14 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
             FacetCut({
                 facetAddress: address(ownerF),
                 action: FacetCutAction.Add,
-                functionSelectors: generateSelectors("JoeTokens")
+                functionSelectors: generateSelectors("JoeTokenFacet")
+            })
+        );
+        cut[3] = (
+            FacetCut({
+                facetAddress: address(dInit),
+                action: FacetCutAction.Add,
+                functionSelectors: generateSelectors("DiamondInit")
             })
         );
 
@@ -59,7 +69,26 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
 
         //call a function
         DiamondLoupeFacet(address(diamond)).facetAddresses();
+
+        //Initialization
+        DiamondInit(address(diamond)).init();
     }
+
+    function testDiamondToken() public {
+        string memory name = JoeTokenFacet(address(diamond)).name();
+        string memory symbol = JoeTokenFacet(address(diamond)).symbol();
+        uint256 totalSupply = JoeTokenFacet(address(diamond)).totalSupply();
+
+        assertEq(name, "Diamond Token");
+        assertEq(symbol, "DTKN");
+        assertEq(totalSupply, 1_000_000e18);
+    }
+
+    // multiple initialization should fail
+    // function testMultipleInitialize() public {
+    //     vm.expectRevert(AlreadyInitialized.selector);
+    //     DiamondInit(address(diamond)).init();
+    // }
 
     function diamondCut(
         FacetCut[] calldata _diamondCut,
