@@ -1,74 +1,187 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+// SPDX-License-Identifier: AGPL-3.0-only
+pragma solidity >=0.8.0;
+import {LibDiamond} from "../libraries/LibDiamond.sol";
 
-import {TokenStorage} from "../libraries/LibAppStorage.sol";
-import {LibERC20} from "../libraries/LibERC20.sol";
+contract JoeTokenFacet {
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
 
-import "../interfaces/IERC20.sol";
+    event Transfer(address indexed from, address indexed to, uint256 amount);
 
-error InsufficientAllowance();
+    event Approval(
+        address indexed owner,
+        address indexed spender,
+        uint256 amount
+    );
 
-contract JoeTokenFacet is IERC20 {
-    TokenStorage s;
+    /*//////////////////////////////////////////////////////////////
+                            METADATA STORAGE
+    //////////////////////////////////////////////////////////////*/
 
-    function name() external pure returns (string memory) {
-        return "Joe Token";
+    uint8 public immutable decimals;
+    uint256 internal immutable INITIAL_CHAIN_ID;
+
+    bytes32 internal immutable INITIAL_DOMAIN_SEPARATOR;
+
+    /*//////////////////////////////////////////////////////////////
+                               CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
+
+    constructor(uint8 _decimals) {
+        decimals = _decimals;
+
+        INITIAL_CHAIN_ID = block.chainid;
+        INITIAL_DOMAIN_SEPARATOR = computeDomainSeparator();
     }
 
-    function symbol() external pure returns (string memory) {
-        return "JOE";
-    }
-
-    function decimals() external pure returns (uint8) {
-        return 18;
-    }
-
-    function totalSupply() external view override returns (uint256) {
-        return s.totalSupply;
-    }
-
-    function balanceOf(
-        address _owner
-    ) external view override returns (uint256 balance) {
-        balance = s.balances[_owner];
-    }
-
-    function transfer(
-        address _to,
-        uint256 _value
-    ) external override returns (bool success) {
-        LibERC20.transfer(s, msg.sender, _to, _value);
-        success = true;
-    }
-
-    function transferFrom(
-        address _from,
-        address _to,
-        uint256 _value
-    ) external override returns (bool success) {
-        uint256 _allowance = s.allowances[_from][msg.sender];
-        if (_allowance < _value) revert InsufficientAllowance();
-
-        LibERC20.transfer(s, _from, _to, _value);
-        unchecked {
-            s.allowances[_from][msg.sender] -= _value;
-        }
-
-        success = true;
-    }
+    /*//////////////////////////////////////////////////////////////
+                               ERC20 LOGIC
+    //////////////////////////////////////////////////////////////*/
 
     function approve(
-        address _spender,
-        uint256 _value
-    ) external override returns (bool success) {
-        LibERC20.approve(s, msg.sender, _spender, _value);
-        success = true;
+        address spender,
+        uint256 amount
+    ) public virtual returns (bool) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        ds.allowance[msg.sender][spender] = amount;
+
+        emit Approval(msg.sender, spender, amount);
+
+        return true;
+    }
+
+    function name() external view returns (string memory tokenName) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        tokenName = ds.name;
+    }
+
+    function balanceOf(address _seeker) external view returns (uint _balance) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+
+        _balance = ds.balanceOf[_seeker];
     }
 
     function allowance(
-        address _owner,
-        address _spender
-    ) external view override returns (uint256 remaining) {
-        remaining = s.allowances[_owner][_spender];
+        address owner,
+        address _seeker
+    ) external view returns (uint _allowance) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+
+        _allowance = ds.allowance[owner][_seeker];
+    }
+
+    function symbol() external view returns (string memory tokenSymbol) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        tokenSymbol = ds.symbol;
+    }
+
+    function totalSupply() external view returns (uint tokenTotalSupply) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        tokenTotalSupply = ds.totalSupply;
+    }
+
+    function transfer(
+        address to,
+        uint256 amount
+    ) public virtual returns (bool) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        ds.balanceOf[msg.sender] -= amount;
+
+        // Cannot overflow because the sum of all user
+        // balances can't exceed the max uint256 value.
+        unchecked {
+            ds.balanceOf[to] += amount;
+        }
+
+        emit Transfer(msg.sender, to, amount);
+
+        return true;
+    }
+
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) public virtual returns (bool) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+
+        uint256 allowed = ds.allowance[from][msg.sender]; // Saves gas for limited approvals.
+
+        if (allowed != type(uint256).max)
+            ds.allowance[from][msg.sender] = allowed - amount;
+
+        ds.balanceOf[from] -= amount;
+
+        // Cannot overflow because the sum of all user
+        // balances can't exceed the max uint256 value.
+        unchecked {
+            ds.balanceOf[to] += amount;
+        }
+
+        emit Transfer(from, to, amount);
+
+        return true;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             EIP-2612 LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    function DOMAIN_SEPARATOR() public view virtual returns (bytes32) {
+        return
+            block.chainid == INITIAL_CHAIN_ID
+                ? INITIAL_DOMAIN_SEPARATOR
+                : computeDomainSeparator();
+    }
+
+    function computeDomainSeparator() internal view virtual returns (bytes32) {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        return
+            keccak256(
+                abi.encode(
+                    keccak256(
+                        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                    ),
+                    keccak256(bytes(ds.name)),
+                    keccak256("1"),
+                    block.chainid,
+                    address(this)
+                )
+            );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        INTERNAL MINT/BURN LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    function _mint(address to, uint256 amount) internal virtual {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        ds.totalSupply += amount;
+
+        // Cannot overflow because the sum of all user
+        // balances can't exceed the max uint256 value.
+        unchecked {
+            ds.balanceOf[to] += amount;
+        }
+
+        emit Transfer(address(0), to, amount);
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function _burn(address from, uint256 amount) internal virtual {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        ds.balanceOf[from] -= amount;
+
+        // Cannot underflow because a user's balance
+        // will never be larger than the total supply.
+        unchecked {
+            ds.totalSupply -= amount;
+        }
+
+        emit Transfer(from, address(0), amount);
     }
 }

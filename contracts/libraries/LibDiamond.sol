@@ -46,7 +46,23 @@ library LibDiamond {
         // Used to implement ERC-165.
         mapping(bytes4 => bool) supportedInterfaces;
         // owner of the contract
+
+        //ERC20 storage
         address contractOwner;
+        string name;
+        string symbol;
+        /*//////////////////////////////////////////////////////////////
+                              ERC20 STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+        uint256 totalSupply;
+        mapping(address => uint256) balanceOf;
+        mapping(address => mapping(address => uint256)) allowance;
+        /*//////////////////////////////////////////////////////////////
+                            EIP-2612 STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+        mapping(address => uint256) nonces;
     }
 
     function diamondStorage()
@@ -70,6 +86,12 @@ library LibDiamond {
         address previousOwner = ds.contractOwner;
         ds.contractOwner = _newOwner;
         emit OwnershipTransferred(previousOwner, _newOwner);
+    }
+
+    function setJoeTokens(string memory _name, string memory _symbol) internal {
+        DiamondStorage storage ds = diamondStorage();
+        ds.name = _name;
+        ds.symbol = _symbol;
     }
 
     function contractOwner() internal view returns (address contractOwner_) {
@@ -251,8 +273,8 @@ library LibDiamond {
                 .facetFunctionSelectors[_facetAddress]
                 .functionSelectors[lastSelectorPosition];
             ds.facetFunctionSelectors[_facetAddress].functionSelectors[
-                    selectorPosition
-                ] = lastSelector;
+                selectorPosition
+            ] = lastSelector;
             ds
                 .selectorToFacetAndPosition[lastSelector]
                 .functionSelectorPosition = uint96(selectorPosition);

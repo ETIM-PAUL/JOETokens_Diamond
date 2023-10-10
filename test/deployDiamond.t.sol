@@ -7,7 +7,6 @@ import "../contracts/facets/DiamondLoupeFacet.sol";
 import "../contracts/facets/OwnershipFacet.sol";
 import "../contracts/facets/JoeTokenFacet.sol";
 import "../contracts/Diamond.sol";
-import "../contracts/upgradeInitializers/DiamondInit.sol";
 
 import "./helpers/DiamondUtils.sol";
 
@@ -18,16 +17,19 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
     DiamondLoupeFacet dLoupe;
     OwnershipFacet ownerF;
     JoeTokenFacet tokenF;
-    DiamondInit dInit;
 
-    function testDeployDiamond() public {
+    function setUp() public {
         //deploy facets
         dCutFacet = new DiamondCutFacet();
-        diamond = new Diamond(address(this), address(dCutFacet));
+        diamond = new Diamond(
+            address(this),
+            address(dCutFacet),
+            "Joe Tokens",
+            "JOE"
+        );
         dLoupe = new DiamondLoupeFacet();
         ownerF = new OwnershipFacet();
-        tokenF = new JoeTokenFacet();
-        dInit = new DiamondInit();
+        tokenF = new JoeTokenFacet(18);
 
         //upgrade diamond with facets
 
@@ -51,16 +53,9 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
         );
         cut[2] = (
             FacetCut({
-                facetAddress: address(ownerF),
+                facetAddress: address(tokenF),
                 action: FacetCutAction.Add,
                 functionSelectors: generateSelectors("JoeTokenFacet")
-            })
-        );
-        cut[3] = (
-            FacetCut({
-                facetAddress: address(dInit),
-                action: FacetCutAction.Add,
-                functionSelectors: generateSelectors("DiamondInit")
             })
         );
 
@@ -69,26 +64,53 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
 
         //call a function
         DiamondLoupeFacet(address(diamond)).facetAddresses();
-
-        //Initialization
-        DiamondInit(address(diamond)).init();
     }
 
-    function testDiamondToken() public {
+    function testNameAndSymbol() public {
         string memory name = JoeTokenFacet(address(diamond)).name();
         string memory symbol = JoeTokenFacet(address(diamond)).symbol();
-        uint256 totalSupply = JoeTokenFacet(address(diamond)).totalSupply();
 
-        assertEq(name, "Diamond Token");
-        assertEq(symbol, "DTKN");
-        assertEq(totalSupply, 1_000_000e18);
+        assertEq(name, "Joe Tokens");
+        assertEq(symbol, "JOE");
     }
 
-    // multiple initialization should fail
-    // function testMultipleInitialize() public {
-    //     vm.expectRevert(AlreadyInitialized.selector);
-    //     DiamondInit(address(diamond)).init();
-    // }
+    function testMint() public {
+        vm.startPrank(address(this));
+        JoeTokenFacet(address(diamond)).mint(address(0x11), 100e18);
+        uint bal = JoeTokenFacet(address(diamond)).balanceOf(address(0x11));
+        assertEq(bal, 100e18);
+    }
+
+    function testTransfer() public {
+        vm.startPrank(address(this));
+        JoeTokenFacet(address(diamond)).mint(address(this), 100e18);
+        JoeTokenFacet(address(diamond)).transfer(address(0x11), 10e18);
+        uint bal = JoeTokenFacet(address(diamond)).balanceOf(address(0x11));
+        assertEq(bal, 10e18);
+    }
+
+    function testTransferFrom() public {
+        vm.startPrank(address(this));
+        JoeTokenFacet(address(diamond)).mint(address(this), 1000e18);
+        JoeTokenFacet(address(diamond)).approve(address(0x11), 100e18);
+        vm.stopPrank();
+
+        vm.startPrank(address(0x11));
+        JoeTokenFacet(address(diamond)).transferFrom(
+            address(this),
+            address(0x22),
+            10e18
+        );
+        uint bal = JoeTokenFacet(address(diamond)).balanceOf(address(0x22));
+        assertEq(bal, 10e18);
+
+        //check allowance of spender
+        uint allowance = JoeTokenFacet(address(diamond)).allowance(
+            address(this),
+            address(0x11)
+        );
+        assertEq(allowance, 90e18);
+    }
 
     function diamondCut(
         FacetCut[] calldata _diamondCut,
